@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Release Management Architecture</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #0a0d14;
+    --panel: #111520;
+    --border: #1e2535;
+    --accent1: #00d4ff;
+    --accent2: #7b61ff;
+    --accent3: #00ff9d;
+    --accent4: #ff6b35;
+    --accent5: #ffd166;
+    --text: #e8eaf0;
+    --muted: #5a6380;
+    --glow1: rgba(0,212,255,0.15);
+    --glow2: rgba(123,97,255,0.15);
+    --glow3: rgba(0,255,157,0.15);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    font-family: 'Syne', sans-serif;
+    color: var(--text);
+    min-height: 100vh;
+    padding: 40px 24px;
+    overflow-x: hidden;
+  }
+
+  /* Animated grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrapper {
+    max-width: 1200px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  header {
+    text-align: center;
+    margin-bottom: 52px;
+    animation: fadeDown 0.8s ease both;
+  }
+
+  .header-tag {
+    display: inline-block;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--accent1);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    border: 1px solid rgba(0,212,255,0.3);
+    padding: 4px 12px;
+    border-radius: 2px;
+    margin-bottom: 16px;
+    background: rgba(0,212,255,0.05);
+  }
+
+  h1 {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #fff 30%, var(--accent1) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .subtitle {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 14px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* ===== PIPELINE ROW ===== */
+  .pipeline {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 48px;
+    animation: fadeUp 0.8s 0.2s ease both;
+  }
+
+  .stage {
+    flex: 1;
+    position: relative;
+  }
+
+  .stage-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px 16px;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.25s, box-shadow 0.25s;
+    cursor: default;
+  }
+
+  .stage-card:hover {
+    transform: translateY(-4px);
+  }
+
+  .stage-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .stage-card.gitlab::before { background: var(--accent4); box-shadow: 0 0 12px var(--accent4); }
+  .stage-card.mulesoft::before { background: var(--accent2); box-shadow: 0 0 12px var(--accent2); }
+  .stage-card.salesforce::before { background: var(--accent1); box-shadow: 0 0 12px var(--accent1); }
+  .stage-card.pubsub::before { background: var(--accent5); box-shadow: 0 0 12px var(--accent5); }
+  .stage-card.cloudhub::before { background: var(--accent3); box-shadow: 0 0 12px var(--accent3); }
+
+  .stage-card.gitlab:hover { box-shadow: 0 12px 40px rgba(255,107,53,0.2); }
+  .stage-card.mulesoft:hover { box-shadow: 0 12px 40px rgba(123,97,255,0.2); }
+  .stage-card.salesforce:hover { box-shadow: 0 12px 40px rgba(0,212,255,0.2); }
+  .stage-card.pubsub:hover { box-shadow: 0 12px 40px rgba(255,209,102,0.2); }
+  .stage-card.cloudhub:hover { box-shadow: 0 12px 40px rgba(0,255,157,0.2); }
+
+  /* Connector arrows between stages */
+  .connector {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    flex-shrink: 0;
+    position: relative;
+  }
+
+  .connector-line {
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, var(--border), var(--accent1), var(--border));
+    position: relative;
+  }
+
+  .connector-arrow {
+    position: absolute;
+    right: -1px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0; height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 8px solid var(--accent1);
+  }
+
+  /* Stage icon */
+  .stage-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    margin-bottom: 12px;
+  }
+
+  .gitlab .stage-icon { background: rgba(255,107,53,0.15); }
+  .mulesoft .stage-icon { background: rgba(123,97,255,0.15); }
+  .salesforce .stage-icon { background: rgba(0,212,255,0.15); }
+  .pubsub .stage-icon { background: rgba(255,209,102,0.15); }
+  .cloudhub .stage-icon { background: rgba(0,255,157,0.15); }
+
+  .stage-label {
+    font-size: 11px;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .gitlab .stage-label { color: var(--accent4); }
+  .mulesoft .stage-label { color: var(--accent2); }
+  .salesforce .stage-label { color: var(--accent1); }
+  .pubsub .stage-label { color: var(--accent5); }
+  .cloudhub .stage-label { color: var(--accent3); }
+
+  .stage-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #fff;
+  }
+
+  .stage-items {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .stage-items li {
+    font-size: 11px;
+    font-family: 'Space Mono', monospace;
+    color: var(--muted);
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .stage-items li::before {
+    content: '›';
+    position: absolute;
+    left: 0;
+    color: var(--accent1);
+  }
+
+  /* ===== BRANCH FLOW ===== */
+  .section-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .branch-flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 48px;
+    animation: fadeUp 0.8s 0.35s ease both;
+  }
+
+  .branch-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .branch-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+
+  .branch-card:hover::after { opacity: 1; }
+
+  .branch-card.feature { border-color: rgba(0,212,255,0.2); }
+  .branch-card.feature::after { background: var(--glow1); }
+  .branch-card.develop { border-color: rgba(123,97,255,0.2); }
+  .branch-card.develop::after { background: var(--glow2); }
+  .branch-card.release { border-color: rgba(255,209,102,0.2); }
+  .branch-card.release::after { background: rgba(255,209,102,0.05); }
+  .branch-card.main { border-color: rgba(0,255,157,0.2); }
+  .branch-card.main::after { background: var(--glow3); }
+
+  .branch-name {
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+
+  .feature .branch-name { color: var(--accent1); background: rgba(0,212,255,0.1); }
+  .develop .branch-name { color: var(--accent2); background: rgba(123,97,255,0.1); }
+  .release .branch-name { color: var(--accent5); background: rgba(255,209,102,0.1); }
+  .main .branch-name { color: var(--accent3); background: rgba(0,255,157,0.1); }
+
+  .branch-env {
+    font-size: 12px;
+    color: var(--text);
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .branch-desc {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    line-height: 1.5;
+  }
+
+  .branch-trigger {
+    margin-top: 10px;
+    font-size: 10px;
+    font-family: 'Space Mono', monospace;
+    padding: 3px 8px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+
+  .feature .branch-trigger { background: rgba(0,212,255,0.08); color: var(--accent1); border: 1px solid rgba(0,212,255,0.2); }
+  .develop .branch-trigger { background: rgba(123,97,255,0.08); color: var(--accent2); border: 1px solid rgba(123,97,255,0.2); }
+  .release .branch-trigger { background: rgba(255,209,102,0.08); color: var(--accent5); border: 1px solid rgba(255,209,102,0.2); }
+  .main .branch-trigger { background: rgba(0,255,157,0.08); color: var(--accent3); border: 1px solid rgba(0,255,157,0.2); }
+
+  /* ===== DATA FLOW ===== */
+  .dataflow {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 48px;
+    animation: fadeUp 0.8s 0.5s ease both;
+  }
+
+  .flow-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: relative;
+  }
+
+  .flow-steps::before {
+    content: '';
+    position: absolute;
+    left: 18px;
+    top: 20px;
+    bottom: 20px;
+    width: 2px;
+    background: linear-gradient(to bottom, var(--accent4), var(--accent2), var(--accent1), var(--accent5), var(--accent3));
+  }
+
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 20px;
+    padding: 12px 0;
+    position: relative;
+  }
+
+  .step-num {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    font-weight: 700;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+  }
+
+  .flow-step:nth-child(1) .step-num { background: rgba(255,107,53,0.15); border: 2px solid var(--accent4); color: var(--accent4); }
+  .flow-step:nth-child(2) .step-num { background: rgba(255,107,53,0.15); border: 2px solid var(--accent4); color: var(--accent4); }
+  .flow-step:nth-child(3) .step-num { background: rgba(123,97,255,0.15); border: 2px solid var(--accent2); color: var(--accent2); }
+  .flow-step:nth-child(4) .step-num { background: rgba(123,97,255,0.15); border: 2px solid var(--accent2); color: var(--accent2); }
+  .flow-step:nth-child(5) .step-num { background: rgba(0,212,255,0.15); border: 2px solid var(--accent1); color: var(--accent1); }
+  .flow-step:nth-child(6) .step-num { background: rgba(255,209,102,0.15); border: 2px solid var(--accent5); color: var(--accent5); }
+  .flow-step:nth-child(7) .step-num { background: rgba(0,255,157,0.15); border: 2px solid var(--accent3); color: var(--accent3); }
+
+  .step-content { flex: 1; padding-top: 7px; }
+
+  .step-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+
+  .step-detail {
+    font-size: 11px;
+    font-family: 'Space Mono', monospace;
+    color: var(--muted);
+  }
+
+  .step-tag {
+    font-size: 10px;
+    font-family: 'Space Mono', monospace;
+    padding: 2px 8px;
+    border-radius: 3px;
+    float: right;
+    margin-top: 7px;
+  }
+
+  /* ===== PAYLOAD BLOCK ===== */
+  .payload-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-bottom: 48px;
+    animation: fadeUp 0.8s 0.65s ease both;
+  }
+
+  .code-block {
+    background: #080b12;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .code-header {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .code-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+  }
+
+  .code-header-label {
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .code-body {
+    padding: 16px;
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    color: #8892b0;
+    overflow-x: auto;
+  }
+
+  .code-body .kw { color: var(--accent2); }
+  .code-body .str { color: var(--accent3); }
+  .code-body .key { color: var(--accent1); }
+  .code-body .val { color: var(--accent5); }
+  .code-body .comment { color: var(--muted); font-style: italic; }
+
+  /* ===== BOTTOM LEGEND ===== */
+  .legend {
+    display: flex;
+    gap: 24px;
+    justify-content: center;
+    flex-wrap: wrap;
+    animation: fadeUp 0.8s 0.8s ease both;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-family: 'Space Mono', monospace;
+    color: var(--muted);
+  }
+
+  .legend-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+  }
+
+  /* Animations */
+  @keyframes fadeDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Pulse animation on connectors */
+  @keyframes pulse-flow {
+    0% { opacity: 0.4; transform: translateY(-50%) scaleX(0.8); }
+    50% { opacity: 1; transform: translateY(-50%) scaleX(1.1); }
+    100% { opacity: 0.4; transform: translateY(-50%) scaleX(0.8); }
+  }
+
+  .connector-arrow { animation: pulse-flow 2s ease-in-out infinite; }
+
+  @media (max-width: 900px) {
+    .pipeline { flex-direction: column; }
+    .connector { width: 100%; height: 28px; transform: rotate(90deg); }
+    .branch-flow { grid-template-columns: repeat(2, 1fr); }
+    .payload-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- Header -->
+  <header>
+    <div class="header-tag">// ARCHITECTURE OVERVIEW</div>
+    <h1>Release Management Pipeline</h1>
+    <p class="subtitle">GitLab CI/CD → MuleSoft → Salesforce → Anypoint MQ → CloudHub</p>
+  </header>
+
+  <!-- ===== MAIN PIPELINE ===== -->
+  <div class="section-title">01 — Integration Stages</div>
+  <div class="pipeline">
+
+    <!-- GitLab -->
+    <div class="stage">
+      <div class="stage-card gitlab">
+        <div class="stage-icon">🦊</div>
+        <div class="stage-label">Source Control</div>
+        <div class="stage-title">GitLab CI/CD</div>
+        <ul class="stage-items">
+          <li>Repository & Branching</li>
+          <li>Pipeline (.gitlab-ci.yml)</li>
+          <li>Build → Test → Package</li>
+          <li>Secrets as CI Variables</li>
+          <li>Artifact Storage</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"><div class="connector-arrow"></div></div>
+    </div>
+
+    <!-- MuleSoft -->
+    <div class="stage">
+      <div class="stage-card mulesoft">
+        <div class="stage-icon">⚡</div>
+        <div class="stage-label">Integration Layer</div>
+        <div class="stage-title">MuleSoft Anypoint</div>
+        <ul class="stage-items">
+          <li>HTTP Listener (POST /api/accounts)</li>
+          <li>DataWeave Transform</li>
+          <li>SF Connector (OAuth2)</li>
+          <li>Error Handling Flows</li>
+          <li>MUnit Test Coverage</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"><div class="connector-arrow"></div></div>
+    </div>
+
+    <!-- Salesforce -->
+    <div class="stage">
+      <div class="stage-card salesforce">
+        <div class="stage-icon">☁️</div>
+        <div class="stage-label">CRM Target</div>
+        <div class="stage-title">Salesforce</div>
+        <ul class="stage-items">
+          <li>Account Object Creation</li>
+          <li>OAuth2 JWT Auth</li>
+          <li>Sandbox (DEV/UAT)</li>
+          <li>Production Org</li>
+          <li>Returns Account ID</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"><div class="connector-arrow"></div></div>
+    </div>
+
+    <!-- Pub/Sub -->
+    <div class="stage">
+      <div class="stage-card pubsub">
+        <div class="stage-icon">📡</div>
+        <div class="stage-label">Event Bus</div>
+        <div class="stage-title">Anypoint MQ</div>
+        <ul class="stage-items">
+          <li>Publish ACCOUNT_CREATED</li>
+          <li>Queue per Environment</li>
+          <li>Exchange Fan-out</li>
+          <li>Dead Letter Queue</li>
+          <li>Subscriber Flows</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="connector">
+      <div class="connector-line"><div class="connector-arrow"></div></div>
+    </div>
+
+    <!-- CloudHub -->
+    <div class="stage">
+      <div class="stage-card cloudhub">
+        <div class="stage-icon">🚀</div>
+        <div class="stage-label">Runtime Platform</div>
+        <div class="stage-title">CloudHub</div>
+        <ul class="stage-items">
+          <li>3 Environments (D/U/P)</li>
+          <li>Worker Sizing per Env</li>
+          <li>Object Store v2</li>
+          <li>Persistent Queues</li>
+          <li>Anypoint Monitoring</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===== BRANCH STRATEGY ===== -->
+  <div class="section-title">02 — Branch → Environment Mapping</div>
+  <div class="branch-flow">
+
+    <div class="branch-card feature">
+      <div class="branch-name">feature/*</div>
+      <div class="branch-env">Development Work</div>
+      <div class="branch-desc">Individual feature branches. Raises Merge Request to develop when ready.</div>
+      <div class="branch-trigger">↑ MR → develop</div>
+    </div>
+
+    <div class="branch-card develop">
+      <div class="branch-name">develop</div>
+      <div class="branch-env">DEV Environment</div>
+      <div class="branch-desc">Integration branch. Auto-deploys to CloudHub DEV on every merge.</div>
+      <div class="branch-trigger">⚡ auto-deploy</div>
+    </div>
+
+    <div class="branch-card release">
+      <div class="branch-name">release/*</div>
+      <div class="branch-env">UAT Environment</div>
+      <div class="branch-desc">Release candidate. Manual pipeline trigger deploys to CloudHub UAT.</div>
+      <div class="branch-trigger">👆 manual trigger</div>
+    </div>
+
+    <div class="branch-card main">
+      <div class="branch-name">main</div>
+      <div class="branch-env">PRODUCTION</div>
+      <div class="branch-desc">Production-ready code. Manual approval gate before CloudHub PROD deploy.</div>
+      <div class="branch-trigger">✅ approval gate</div>
+    </div>
+
+  </div>
+
+  <!-- ===== RELEASE LIFECYCLE ===== -->
+  <div class="section-title">03 — End-to-End Release Lifecycle</div>
+  <div class="dataflow">
+    <div class="flow-steps">
+
+      <div class="flow-step">
+        <div class="step-num">01</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(255,107,53,0.1);color:var(--accent4);border:1px solid rgba(255,107,53,0.2);">GitLab</span>
+          <div class="step-title">Developer pushes to feature branch</div>
+          <div class="step-detail">Code committed → Merge Request opened → peer review → merged to develop</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">02</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(255,107,53,0.1);color:var(--accent4);border:1px solid rgba(255,107,53,0.2);">CI Pipeline</span>
+          <div class="step-title">GitLab CI runs Build → Test → Package</div>
+          <div class="step-detail">mvn clean compile → MUnit tests (≥80% coverage enforced) → .jar artifact stored</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">03</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(123,97,255,0.1);color:var(--accent2);border:1px solid rgba(123,97,255,0.2);">MuleSoft</span>
+          <div class="step-title">Auto-deploy to CloudHub DEV via mule-maven-plugin</div>
+          <div class="step-detail">mvn deploy -DmuleDeploy → app deployed as sf-account-integration-dev</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">04</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(123,97,255,0.1);color:var(--accent2);border:1px solid rgba(123,97,255,0.2);">QA</span>
+          <div class="step-title">QA validates DEV — Salesforce Sandbox + MQ events verified</div>
+          <div class="step-detail">POST /api/accounts → account created in SF sandbox → event published to MQ DEV queue</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">05</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(0,212,255,0.1);color:var(--accent1);border:1px solid rgba(0,212,255,0.2);">Salesforce</span>
+          <div class="step-title">release/* branch created → manual deploy to CloudHub UAT</div>
+          <div class="step-detail">UAT sign-off against full Salesforce sandbox → account objects validated → MQ events confirmed</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">06</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(255,209,102,0.1);color:var(--accent5);border:1px solid rgba(255,209,102,0.2);">Pub/Sub</span>
+          <div class="step-title">MR merged to main → manual approval gate triggered</div>
+          <div class="step-detail">Release manager approves deploy-prod stage in GitLab pipeline</div>
+        </div>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-num">07</div>
+        <div class="step-content">
+          <span class="step-tag" style="background:rgba(0,255,157,0.1);color:var(--accent3);border:1px solid rgba(0,255,157,0.2);">CloudHub PROD</span>
+          <div class="step-title">PROD live — Salesforce Production accounts created, events flowing</div>
+          <div class="step-detail">sf-account-integration-prod running on CloudHub → ACCOUNT_CREATED events on prod MQ exchange</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ===== PAYLOADS ===== -->
+  <div class="section-title">04 — Key Payloads</div>
+  <div class="payload-grid">
+
+    <div class="code-block">
+      <div class="code-header">
+        <div class="code-dot" style="background:#ff5f57"></div>
+        <div class="code-dot" style="background:#ffbd2e"></div>
+        <div class="code-dot" style="background:#28ca41"></div>
+        <div class="code-header-label">POST /api/accounts — Inbound</div>
+      </div>
+      <div class="code-body">
+<span class="comment">// HTTP Request Payload</span><br>
+{<br>
+&nbsp;&nbsp;<span class="key">"accountName"</span>: <span class="str">"Acme Corp"</span>,<br>
+&nbsp;&nbsp;<span class="key">"phone"</span>: <span class="str">"+1-555-0100"</span>,<br>
+&nbsp;&nbsp;<span class="key">"city"</span>: <span class="str">"New York"</span>,<br>
+&nbsp;&nbsp;<span class="key">"industry"</span>: <span class="str">"Technology"</span><br>
+}<br><br>
+<span class="comment">// DataWeave → Salesforce Account</span><br>
+[{<br>
+&nbsp;&nbsp;<span class="key">Name</span>: <span class="val">payload.accountName</span>,<br>
+&nbsp;&nbsp;<span class="key">Phone</span>: <span class="val">payload.phone</span>,<br>
+&nbsp;&nbsp;<span class="key">BillingCity</span>: <span class="val">payload.city</span>,<br>
+&nbsp;&nbsp;<span class="key">Type</span>: <span class="str">"Prospect"</span><br>
+}]
+      </div>
+    </div>
+
+    <div class="code-block">
+      <div class="code-header">
+        <div class="code-dot" style="background:#ff5f57"></div>
+        <div class="code-dot" style="background:#ffbd2e"></div>
+        <div class="code-dot" style="background:#28ca41"></div>
+        <div class="code-header-label">Anypoint MQ — Published Event</div>
+      </div>
+      <div class="code-body">
+<span class="comment">// Published to salesforce-account-events</span><br>
+{<br>
+&nbsp;&nbsp;<span class="key">"eventType"</span>: <span class="str">"ACCOUNT_CREATED"</span>,<br>
+&nbsp;&nbsp;<span class="key">"accountId"</span>: <span class="str">"0015g00000XyZAbAAL"</span>,<br>
+&nbsp;&nbsp;<span class="key">"accountName"</span>: <span class="str">"Acme Corp"</span>,<br>
+&nbsp;&nbsp;<span class="key">"timestamp"</span>: <span class="str">"2026-02-23T14:30:00Z"</span>,<br>
+&nbsp;&nbsp;<span class="key">"status"</span>: <span class="str">"SUCCESS"</span>,<br>
+&nbsp;&nbsp;<span class="key">"source"</span>: <span class="str">"mulesoft-sf-integration"</span><br>
+}<br><br>
+<span class="comment">// Consumed by downstream subscriber flows</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent4)"></div>GitLab</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent2)"></div>MuleSoft</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent1)"></div>Salesforce</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent5)"></div>Anypoint MQ</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent3)"></div>CloudHub</div>
+    <div class="legend-item" style="color:var(--muted)">⚡ Auto Deploy</div>
+    <div class="legend-item" style="color:var(--muted)">👆 Manual Gate</div>
+  </div>
+
+</div>
+</body>
+</html>
